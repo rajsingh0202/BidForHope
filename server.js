@@ -17,9 +17,14 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: [
+    'http://localhost:3000',         // for local dev
+    'https://bidforhope-frontend-1.vercel.app', // your actual Vercel production domain
+    // Add any other custom domain from Vercel if needed
+  ],
   credentials: true
 }));
+
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
