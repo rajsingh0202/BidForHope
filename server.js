@@ -20,7 +20,8 @@ app.use(cors({
   origin: [
     'http://localhost:3000',         // for local dev
     'https://bidforhope-frontend-1.vercel.app', 
-    'https://bid-for-hope-frontend-git-master-raj-singh-0202s-projects.vercel.app'// your actual Vercel production domain
+    'https://bid-for-hope-frontend-git-master-raj-singh-0202s-projects.vercel.app',
+    'https://bid-for-hope-frontend.vercel.app'// your actual Vercel production domain
     // Add any other custom domain from Vercel if needed
   ],
   credentials: true
