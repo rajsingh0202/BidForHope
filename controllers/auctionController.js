@@ -250,6 +250,10 @@ exports.approveAuction = async (req, res) => {
     auction.approvalDate = Date.now();
 
     await auction.save();
+    if (auction.status === 'active') {
+  io.emit('auctionUpdated');
+}
+
 
     const populatedAuction = await Auction.findById(auction._id)
       .populate('ngo', 'name email')
@@ -349,6 +353,9 @@ exports.endAuction = async (req, res) => {
     auction.status = 'ended';
     auction.endDate = new Date(); // Set end date to now
     await auction.save();
+if (auction.status === 'ended') {
+  io.emit('auctionUpdated');
+}
 
     // --- Add credit transaction for the NGO ---
     if (
