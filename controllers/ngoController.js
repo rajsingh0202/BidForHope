@@ -1,6 +1,7 @@
 const NGO = require('../models/NGO');
 const User = require('../models/User'); 
 const Transaction = require('../models/Transaction');
+const io = global._io; // add this at the top!
 
 // @desc    Create new NGO (registration)
 // @route   POST /api/ngos
@@ -35,6 +36,9 @@ exports.createNGO = async (req, res) => {
       domains,
       status: 'pending', // Approval required
     });
+
+    // Emit socket event for new NGO registration
+    if (io) io.emit('newNGOPending');
 
     res.status(201).json({
       success: true,
@@ -151,8 +155,8 @@ exports.updateNGOStatus = async (req, res) => {
   }
 };
 
-// @desc   Get all transactions for an NGO
-// @route  GET /api/ngos/:id/transactions
+// @desc    Get all transactions for an NGO
+// @route   GET /api/ngos/:id/transactions
 exports.getNGOTransactions = async (req, res) => {
   try {
     const transactions = await Transaction.find({ ngoId: req.params.id }).sort({ createdAt: -1 });
@@ -172,32 +176,8 @@ exports.getNGOTransactions = async (req, res) => {
   }
 };
 
-// @desc   Add debit transaction (NGO only)
-// @route  POST /api/ngos/:id/transactions/debit
-exports.addDebitTransaction = async (req, res) => {
-  try {
-    const ngo = await NGO.findById(req.params.id);
-    if (!ngo) {
-      return res.status(404).json({ success: false, message: 'NGO not found' });
-    }
-
-    const { amount, description, domain } = req.body;
-    const transaction = await Transaction.create({
-      ngoId: req.params.id,
-      ngoEmail: ngo.email,      // <-- Save the NGO email
-      type: 'debit',
-      amount,
-      description,
-      domain
-    });
-    res.status(201).json({ success: true, transaction });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// @desc   Add debit transaction (NGO only)
-// @route  POST /api/ngos/:id/transactions/debit
+// @desc    Add debit transaction (NGO only)
+// @route   POST /api/ngos/:id/transactions/debit
 exports.addDebitTransaction = async (req, res) => {
   try {
     const ngo = await NGO.findById(req.params.id);
@@ -232,8 +212,8 @@ exports.addDebitTransaction = async (req, res) => {
   }
 };
 
-// @desc   Add credit transaction (admin or for testing)
-// @route  POST /api/ngos/:id/transactions/credit
+// @desc    Add credit transaction (admin or for testing)
+// @route   POST /api/ngos/:id/transactions/credit
 exports.addCreditTransaction = async (req, res) => {
   try {
     const ngo = await NGO.findById(req.params.id);
