@@ -355,6 +355,9 @@ exports.endAuction = async (req, res) => {
     await auction.save();
 if (auction.status === 'ended') {
   io.emit('auctionUpdated');
+   if (auction.ngo && auction.ngo._id) {
+        io.emit(`walletUpdate:${auction.ngo._id.toString()}`); // Notify wallet
+      }
 }
 
     // --- Add credit transaction for the NGO ---
@@ -507,6 +510,10 @@ exports.directDonate = async (req, res) => {
         ? `Direct donation by ${donorName || 'Anonymous'}: ${donorMessage}`
         : `Direct donation by ${donorName || 'Anonymous'}`
     });
+
+    if (auction.ngo && auction.ngo._id) {
+      io.emit(`walletUpdate:${auction.ngo._id.toString()}`);
+    }
     res.status(201).json({ success: true, message: 'Donation added!' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
