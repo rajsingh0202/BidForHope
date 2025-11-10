@@ -94,10 +94,6 @@ exports.getAllAuctionsForUser = async (req, res) => {
     });
   }
 };
-if (auction.status === 'pending') {
-  console.log("IO is: ", io);
-  io.emit('newAuctionPending');
-}
 
 // @desc    Create new auction
 // @route   POST /api/auctions
@@ -175,6 +171,7 @@ exports.createAuction = async (req, res) => {
     }
     // EMIT to admins when a new auction is pending
 if (auction.status === 'pending') {
+  console.log("IO is: ", io);
   io.emit('newAuctionPending');
 }
 
