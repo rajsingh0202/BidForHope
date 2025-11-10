@@ -3,6 +3,7 @@ const router = express.Router();
 const { protect, authorize } = require('../middleware/auth');
 const auctionController = require('../controllers/auctionController');
 const { directDonate } = require('../controllers/auctionController');
+const Auction = require('../models/Auction'); // <-- import your model
 
 // Public routes
 router.get('/', auctionController.getAuctions);
@@ -28,5 +29,15 @@ router.put('/:id/reject', protect, authorize('admin'), auctionController.rejectA
 router.put('/:id/end', protect, authorize('admin'), auctionController.endAuction);
 
 router.post('/:id/donate', directDonate);
+
+// --- Add this at the bottom for lightweight count ---
+router.get('/pending/count', async (req, res) => {
+  try {
+    const count = await Auction.countDocuments({ status: 'pending' });
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 module.exports = router;
