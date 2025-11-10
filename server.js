@@ -1,5 +1,5 @@
 const express = require('express');
-const http = require('http'); // <--- ADD THIS
+const http = require('http');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const connectDB = require('./config/db');
@@ -20,20 +20,40 @@ app.use(cors({
     'http://localhost:3000',         // for local dev
     'https://bidforhope-frontend-1.vercel.app',
     'https://bid-for-hope-frontend-git-master-raj-singh-0202s-projects.vercel.app',
-    'https://bid-for-hope-frontend.vercel.app' // your actual Vercel production domain
+    'https://bid-for-hope-frontend.vercel.app' // production domain
     // Add any other custom domain from Vercel if needed
   ],
   credentials: true
 }));
 
-// Routes
+// ====== Create HTTP server and Socket.IO BEFORE loading routes ======
+const server = http.createServer(app);
+const { Server } = require('socket.io');
+const io = new Server(server, {
+  cors: {
+    origin: [
+      'http://localhost:3000',
+      'https://bidforhope-frontend-1.vercel.app',
+      'https://bid-for-hope-frontend-git-master-raj-singh-0202s-projects.vercel.app',
+      'https://bid-for-hope-frontend.vercel.app'
+    ],
+    credentials: true
+  }
+});
+global._io = io; // <-- This is now before ALL routes
+// ===========================================================
+
+// ====== NOW setup all your routes (AFTER global._io is set): ======
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/auctions', require('./routes/auction'));
 app.use('/api/ngos', require('./routes/ngo'));
+
 const bidRoutes = require('./routes/bid');
 app.use('/api/bids', bidRoutes);
+
 const uploadRoutes = require('./routes/upload');
 app.use('/api/upload', uploadRoutes);
+
 app.use('/api/autobid', require('./routes/autoBid'));
 require('./autoBidCron');
 
@@ -45,28 +65,7 @@ app.get('/', (req, res) => {
   });
 });
 
-const auctionRoutes = require('./routes/auction');
-app.use('/api/auctions', auctionRoutes);
-
-// Create HTTP server for Socket.IO
-const server = http.createServer(app);
-
-// Set up Socket.IO
-const { Server } = require('socket.io');
-const io = new Server(server, {
-  cors: {
-    origin: [
-      'http://localhost:3000',
-      'https://bidforhope-frontend-1.vercel.app',
-      'https://bid-for-hope-frontend-git-master-raj-singh-0202s-projects.vercel.app',
-      'https://bid-for-hope-frontend.vercel.app'
-      // Add any custom domain here too
-    ],
-    credentials: true
-  }
-});
-global._io = io;
-
+// No need to re-import auctionRoutes here—a single `app.use` is enough
 
 // Start server
 const PORT = process.env.PORT || 5000;
