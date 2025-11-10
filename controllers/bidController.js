@@ -1,5 +1,6 @@
 const Bid = require('../models/Bid');
 const Auction = require('../models/Auction');
+const io = global._io;
 
 // Place a bid
 exports.placeBid = async (req, res) => {
@@ -33,6 +34,11 @@ exports.placeBid = async (req, res) => {
     auction.currentPrice = amount;
     auction.totalBids = (auction.totalBids || 0) + 1;
     await auction.save();
+
+    // Emit bid update event for this auction (real-time refresh for all clients)
+    if (io) {
+      io.emit(`auctionBidUpdate:${auctionId}`);
+    }
 
     res.status(201).json({
       success: true,
