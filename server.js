@@ -67,8 +67,6 @@ const io = new Server(server, {
 });
 global._io = io;
 
-// Export io for controllers to use
-module.exports.io = io;
 
 // Start server
 const PORT = process.env.PORT || 5000;
