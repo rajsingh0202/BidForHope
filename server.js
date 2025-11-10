@@ -62,3 +62,6 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/autobid', require('./routes/autoBid'));
 
 require('./autoBidCron');
+
+const auctionRoutes = require('./routes/auction');
+app.use('/api/auctions', auctionRoutes);
