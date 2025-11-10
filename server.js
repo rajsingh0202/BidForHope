@@ -65,6 +65,7 @@ const io = new Server(server, {
     credentials: true
   }
 });
+global._io = io;
 
 // Export io for controllers to use
 module.exports.io = io;

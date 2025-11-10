@@ -2,7 +2,8 @@ const Auction = require('../models/Auction');
 const NGO = require('../models/NGO');
 const Transaction = require('../models/Transaction');
 const Bid = require('../models/Bid');
-const { io } = require('../server'); // Import the io instance
+const io = global._io;
+// Import the io instance
 // @desc    Get all auctions
 // @route   GET /api/auctions
 exports.getAuctions = async (req, res) => {
