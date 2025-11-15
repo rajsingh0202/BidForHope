@@ -11,7 +11,7 @@ const io = global._io;
 exports.getAuctions = async (req, res) => {
   try {
     const auctions = await Auction.find()
-      .populate('ngo', 'name logo isVerified')
+     .populate('ngo', 'name email logo isVerified')
       .populate('organizer', 'name email')
       .sort('-createdAt');
 
