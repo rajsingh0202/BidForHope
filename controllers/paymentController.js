@@ -13,6 +13,7 @@ const razorpay = new Razorpay({
 
 // Create Razorpay Order
 exports.createOrder = async (req, res) => {
+  console.log('PAYMENT CREATE BODY:', req.body); 
   try {
     const { amount, ngoEmail, auctionId, type } = req.body;
 
