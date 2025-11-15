@@ -4,25 +4,26 @@ const Transaction = require('../models/Transaction');
 const Bid = require('../models/Bid');
 const io = global._io;
 
-
-// Import the io instance hello
 // @desc    Get all auctions
 // @route   GET /api/auctions
 exports.getAuctions = async (req, res) => {
   try {
     const auctions = await Auction.find()
-     .populate('ngo', 'name email logo isVerified')
+      .populate('ngo', 'name email logo isVerified')
       .populate('organizer', 'name email')
       .sort('-createdAt');
 
-       // Auto-end any active auctions whose endDate is in the past
+    // Auto-end any active auctions whose endDate is in the past
     const now = Date.now();
     for (let auc of auctions) {
       if (auc.status === 'active' && now > new Date(auc.endDate)) {
         auc.status = 'ended';
         await auc.save();
+        // Emit real-time end for this auction
+        io.to(auc._id.toString()).emit('auctionEnded');
       }
     }
+
     res.status(200).json({
       success: true,
       count: auctions.length,
@@ -56,6 +57,7 @@ exports.getAuction = async (req, res) => {
     if (auction.status === 'active' && Date.now() > new Date(auction.endDate)) {
       auction.status = 'ended';
       await auction.save();
+      io.to(auction._id.toString()).emit('auctionEnded');
     }
 
     // Increment views
@@ -117,7 +119,7 @@ exports.createAuction = async (req, res) => {
       allowDirectDonation,
       enableAutoBidding,
       status,
-      images // ⬅️ make sure you get images in req.body or req.files
+      images
     } = req.body;
 
     // Validate required fields
@@ -128,7 +130,6 @@ exports.createAuction = async (req, res) => {
       });
     }
 
-    // Determine auction status based on user role
     let auctionStatus = status || 'draft';
     if (req.user.role === 'ngo') {
       if (status === 'active') {
@@ -138,7 +139,6 @@ exports.createAuction = async (req, res) => {
       auctionStatus = status || 'active';
     }
 
-    // Build auction data object
     const auctionData = {
       title,
       description,
@@ -149,42 +149,35 @@ exports.createAuction = async (req, res) => {
       startDate,
       endDate,
       status: auctionStatus,
-      isUrgent: isUrgent === true, // Ensure boolean
+      isUrgent: isUrgent === true,
       ngo,
       organizer: req.user._id,
       category: category || 'art',
-      allowDirectDonation: allowDirectDonation !== false, // Default true
-      enableAutoBidding: enableAutoBidding !== false,     // Default true
-      images: images || [] // <-- Ensure images get included if uploaded
+      allowDirectDonation: allowDirectDonation !== false,
+      enableAutoBidding: enableAutoBidding !== false,
+      images: images || []
     };
 
-    // Only add urgentCause if isUrgent is true AND urgentCause is provided
     if (isUrgent === true && urgentCause && urgentCause.trim() !== '') {
       auctionData.urgentCause = urgentCause;
     }
 
-    // Create the auction
     const auction = await Auction.create(auctionData);
 
-    // ⬇️ Set logo field if images exist
     if (auction.images && auction.images.length > 0) {
       auction.logo = auction.images[0].url;
       await auction.save();
     }
-    // EMIT to admins when a new auction is pending
-if (auction.status === 'pending') {
-  console.log("IO is: ", io);
-  io.emit('newAuctionPending');
-}
+    // Emit to admins when new auction is pending
+    if (auction.status === 'pending') {
+      io.emit('newAuctionPending');
+    }
 
-
-    // Populate references for return
     const populatedAuction = await Auction.findById(auction._id)
       .populate('ngo', 'name email isVerified')
       .populate('organizer', 'name email');
 
-    // Send appropriate message
-    const message = req.user.role === 'ngo' 
+    const message = req.user.role === 'ngo'
       ? 'Auction created and sent for admin approval'
       : 'Auction created successfully';
 
@@ -201,7 +194,6 @@ if (auction.status === 'pending') {
     });
   }
 };
-
 
 // @desc    Get pending auctions (Admin only)
 // @route   GET /api/auctions/pending
@@ -253,9 +245,8 @@ exports.approveAuction = async (req, res) => {
 
     await auction.save();
     if (auction.status === 'active') {
-  io.emit('auctionUpdated');
-}
-
+      io.emit('auctionUpdated');
+    }
 
     const populatedAuction = await Auction.findById(auction._id)
       .populate('ngo', 'name email')
@@ -299,7 +290,6 @@ exports.rejectAuction = async (req, res) => {
 
     auction.status = 'draft';
     auction.rejectionReason = reason || 'Not approved by admin';
-
     await auction.save();
 
     const populatedAuction = await Auction.findById(auction._id)
@@ -324,7 +314,6 @@ exports.rejectAuction = async (req, res) => {
 // @access  Private (Admin)
 exports.endAuction = async (req, res) => {
   try {
-    // Populate NGO for transaction
     const auction = await Auction.findById(req.params.id)
       .populate('ngo', 'name email isVerified _id');
 
@@ -353,27 +342,28 @@ exports.endAuction = async (req, res) => {
 
     // Update auction status to ended
     auction.status = 'ended';
-    auction.endDate = new Date(); // Set end date to now
+    auction.endDate = new Date();
     await auction.save();
-if (auction.status === 'ended') {
-  io.emit('auctionUpdated');
-   if (auction.ngo && auction.ngo._id) {
-        io.emit(`walletUpdate:${auction.ngo._id.toString()}`); // Notify wallet
+    if (auction.status === 'ended') {
+      io.emit('auctionUpdated');
+      io.to(auction._id.toString()).emit('auctionEnded'); // <--- Added for real-time
+      if (auction.ngo && auction.ngo._id) {
+        io.emit(`walletUpdate:${auction.ngo._id.toString()}`);
       }
-}
+    }
 
-    // --- Add credit transaction for the NGO ---
+    // Add credit transaction for NGO
     if (
-      auction.ngo && 
-      auction.ngo._id && 
-      auction.ngo.email && 
+      auction.ngo &&
+      auction.ngo._id &&
+      auction.ngo.email &&
       auction.currentPrice > 0
     ) {
       await Transaction.create({
         ngoId: auction.ngo._id,
         ngoEmail: auction.ngo.email,
         type: 'credit',
-        amount: auction.currentPrice, // Collected amount
+        amount: auction.currentPrice,
         reference: `Auction: ${auction.title}`,
         description: `Auction funds collected - Winner: ${winnerName}`,
       });
@@ -395,6 +385,7 @@ if (auction.status === 'ended') {
     });
   }
 };
+
 // @desc    Update auction
 // @route   PUT /api/auctions/:id
 exports.updateAuction = async (req, res) => {
@@ -408,7 +399,6 @@ exports.updateAuction = async (req, res) => {
       });
     }
 
-    // Make sure user is auction organizer or admin
     if (auction.organizer.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -446,7 +436,6 @@ exports.deleteAuction = async (req, res) => {
       });
     }
 
-    // Make sure user is auction organizer or admin
     if (auction.organizer.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -521,4 +510,3 @@ exports.directDonate = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
