@@ -3,9 +3,9 @@ const {
   createWithdrawalRequest,
   getMyWithdrawalRequests,
   getAllWithdrawalRequests,
-  processWithdrawalRequest
+  processWithdrawalRequest,
+  approveManualWithdrawal
 } = require('../controllers/withdrawalController');
-const withdrawController = require('../controllers/withdrawalController');
 
 const router = express.Router();
 
@@ -21,6 +21,7 @@ router.get('/all', getAllWithdrawalRequests);
 // Admin: Approve or reject withdrawal request (PUT /api/withdrawals/:id/process)
 router.put('/:id/process', processWithdrawalRequest);
 
-router.post('/:id/approve-manual', withdrawController.approveManualWithdrawal);
+// Admin: Approve withdrawal manually (POST /api/withdrawals/:id/approve-manual)
+router.post('/:id/approve-manual', approveManualWithdrawal);
 
 module.exports = router;
