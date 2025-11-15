@@ -78,3 +78,19 @@ process.on('unhandledRejection', (err) => {
   console.log(`Error: ${err.message}`);
   server.close(() => process.exit(1));
 });
+
+
+// Add these imports
+const paymentRoutes = require('./routes/payment');
+const withdrawalRoutes = require('./routes/withdrawal');
+
+// Add these routes (after your existing routes)
+app.use('/api/payment', paymentRoutes);
+app.use('/api/withdrawals', withdrawalRoutes);
+
+
+// app.js or server.js
+const payoutRoutes = require('./routes/payoutRoutes'); // adjust path as needed
+
+// Place this after you initialize Express and before starting your server:
+app.use('/api/payouts', payoutRoutes);

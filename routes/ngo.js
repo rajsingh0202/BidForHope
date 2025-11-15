@@ -8,7 +8,7 @@ const {
   addDebitTransaction
 } = require('../controllers/ngoController');
 const { protect, authorize } = require('../middleware/auth');
-
+const { updateBankDetails, getBankDetails } = require('../controllers/withdrawalController');
 const router = express.Router();
 
 const { addCreditTransaction } = require('../controllers/ngoController');
@@ -33,5 +33,8 @@ router.get('/:id/transactions', getNGOTransactions);
 
 // POST debit transaction - only logged-in NGO
 router.post('/:id/transactions/debit', addDebitTransaction);
+
+router.get('/bank-details', getBankDetails);
+router.put('/bank-details', updateBankDetails);
 
 module.exports = router;

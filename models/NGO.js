@@ -70,10 +70,32 @@ const NGOSchema = new mongoose.Schema({
     min: 0,
     max: 5
   },
+    transactions: [
+    {
+      type: { type: String, enum: ['credit', 'debit'], required: true },
+      amount: { type: Number, required: true },
+      description: String,
+      relatedPayment: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentTransaction' },
+      relatedWithdrawal: { type: mongoose.Schema.Types.ObjectId, ref: 'WithdrawalRequest' },
+      date: { type: Date, default: Date.now }
+    }
+  ],
   createdAt: {
     type: Date,
     default: Date.now
-  }
+  },
+  // Add this inside your User/NGO schema
+bankDetails: {
+  accountHolderName: String,
+  accountNumber: String,
+  ifscCode: String,
+  bankName: String,
+  branch: String,
+  phone : String
+},
+fundAccountId: {
+  type: String
+}
 });
 
 module.exports = mongoose.model('NGO', NGOSchema);
