@@ -344,12 +344,14 @@ exports.endAuction = async (req, res) => {
     auction.status = 'ended';
     auction.endDate = new Date();
     await auction.save();
-    if (auction.status === 'ended') {
-      io.emit('auctionUpdated');
-      if (auction.ngo && auction.ngo._id) {
-        io.emit(`walletUpdate:${auction.ngo._id.toString()}`);
-      }
-    }
+   if (auction.status === 'ended') {
+  io.to(auction._id.toString()).emit('auctionEnded');
+  io.emit('auctionUpdated');
+  if (auction.ngo && auction.ngo._id) {
+    io.emit(`walletUpdate:${auction.ngo._id.toString()}`);
+  }
+}
+
 
     // Add credit transaction for NGO
     if (
