@@ -70,4 +70,4 @@ async function runAutoBids() {
 }
 
 // Start interval (every 2 seconds)
-setInterval(runAutoBids, 1000);
+setInterval(runAutoBids, 100000);

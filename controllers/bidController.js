@@ -1,8 +1,7 @@
 const Bid = require('../models/Bid');
 const Auction = require('../models/Auction');
-const AutoBid = require('../models/AutoBid'); // <-- ADD THIS LINE!
+const AutoBid = require('../models/AutoBid');
 const io = global._io;
-
 
 // Place a bid
 exports.placeBid = async (req, res) => {
@@ -11,7 +10,7 @@ exports.placeBid = async (req, res) => {
     const auctionId = req.params.id;
     const bidderId = req.user._id;
 
-    const auction = await Auction.findById(auctionId);
+    let auction = await Auction.findById(auctionId);
 
     if (!auction) {
       return res.status(404).json({ success: false, message: 'Auction not found' });
@@ -37,17 +36,53 @@ exports.placeBid = async (req, res) => {
     auction.totalBids = (auction.totalBids || 0) + 1;
     await auction.save();
 
-    // === AUTO-BID CLEANUP: Disable any auto-bidder whose max <= current price ===
-    const activeAutoBids = await AutoBid.find({ auction: auctionId, isActive: true });
-    for (const ab of activeAutoBids) {
-      if (ab.maxAmount <= auction.currentPrice) {
-        await AutoBid.findOneAndUpdate(
-          { user: ab.user, auction: auctionId },
-          { isActive: false, stopReason: 'max-amount' }
-        );
+    // === AUTO-BID: RECURSIVE OUTBID LOGIC ===
+    let keepLooping = true;
+    while (keepLooping) {
+      keepLooping = false;
+      auction = await Auction.findById(auctionId);
+      const currentHighestBid = await Bid.findOne({ auction: auctionId }).sort('-amount');
+      const activeAutoBids = await AutoBid.find({ auction: auctionId, isActive: true }).sort({ maxAmount: -1 });
+
+      for (const ab of activeAutoBids) {
+        // Is NOT the top bidder and can make next bid
+        if (
+          (!currentHighestBid || ab.user.toString() !== currentHighestBid.bidder.toString()) &&
+          ab.maxAmount >= auction.currentPrice + auction.bidIncrement
+        ) {
+          const nextBidAmount = Math.min(ab.maxAmount, auction.currentPrice + auction.bidIncrement);
+          await Bid.create({
+            auction: auctionId,
+            bidder: ab.user,
+            amount: nextBidAmount,
+            time: new Date(),
+          });
+          auction.currentPrice = nextBidAmount;
+          auction.totalBids = (auction.totalBids || 0) + 1;
+          await auction.save();
+
+          // Disable autobid if max reached
+          if (nextBidAmount === ab.maxAmount) {
+            await AutoBid.findOneAndUpdate({ user: ab.user, auction: auctionId }, { isActive: false, stopReason: 'max-amount' });
+          }
+
+          // Emit socket event for real-time bid update
+          if (io) {
+            const allBids = await Bid.find({ auction: auctionId })
+              .populate('bidder', 'name email')
+              .sort('-time');
+            io.to(auctionId.toString()).emit('auctionBidUpdate', allBids);
+          }
+          keepLooping = true; // After any auto-bid, check again in case other auto-bidders can now respond
+          break; // Break out of for-loop; re-enter while(start)
+        }
+        // Disable auto-bid if their max can't compete (cleanup)
+        else if (ab.maxAmount < auction.currentPrice + auction.bidIncrement) {
+          await AutoBid.findOneAndUpdate({ user: ab.user, auction: auctionId }, { isActive: false, stopReason: 'max-amount' });
+        }
       }
     }
-    // === END AUTO-BID CLEANUP ===
+    // === END AUTO-BID LOGIC ===
 
     if (io) {
       // Get all latest bids after new bid created
@@ -68,7 +103,6 @@ exports.placeBid = async (req, res) => {
   }
 };
 
-
 // Get all bids for an auction
 exports.getAuctionBids = async (req, res) => {
   try {
@@ -85,7 +119,6 @@ exports.getAuctionBids = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
 
 // Get all bids for logged-in user
 exports.getUserBids = async (req, res) => {
