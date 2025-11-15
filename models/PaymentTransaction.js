@@ -7,8 +7,7 @@ const PaymentTransactionSchema = new mongoose.Schema({
     required: true
   },
   ngo: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'NGO',
+    type: String, // CHANGE: store ngo email as String, not ObjectId!
     required: true
   },
   auction: {
