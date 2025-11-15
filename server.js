@@ -40,8 +40,9 @@ const io = new Server(server, {
     credentials: true
   }
 });
-app.set('io', io);      // ← Enable io for all requests!
-global._io = io;        // ← You can keep this if needed
+app.set('io', io);      // Enable io for all requests!
+global._io = io;        // You can keep this if needed
+
 // ===========================================================
 
 // ====== NOW setup all your routes (AFTER io is set): ======
@@ -67,7 +68,7 @@ app.get('/', (req, res) => {
 });
 
 // Payment/withdrawal routes
-const paymentRoutes = require('./routes/payment');
+const paymentRoutes = require('./routes/payment');    // Make sure this matches updated code!
 const withdrawalRoutes = require('./routes/withdrawal');
 app.use('/api/payment', paymentRoutes);
 app.use('/api/withdrawals', withdrawalRoutes);

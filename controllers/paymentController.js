@@ -14,22 +14,22 @@ const razorpay = new Razorpay({
 // Create Razorpay Order
 exports.createOrder = async (req, res) => {
   try {
-    const { amount, ngoEmail, auctionId, type } = req.body; // CHANGE: use ngoEmail!
-    
+    const { amount, ngoEmail, auctionId, type } = req.body;
+
     // Validate amount
     if (!amount || amount < 1) {
       return res.status(400).json({ success: false, message: 'Invalid amount' });
     }
 
     // Validate NGO exists
-    const ngo = await NGO.findOne({ email: ngoEmail.toLowerCase() }); // CHANGE
+    const ngo = await NGO.findOne({ email: ngoEmail.toLowerCase() });
     if (!ngo) {
       return res.status(404).json({ success: false, message: 'NGO not found' });
     }
 
     // Create Razorpay order (amount must be in paise: ₹1 = 100 paise)
     const options = {
-      amount: amount * 100, // Convert rupees to paise
+      amount: amount * 100,
       currency: 'INR',
       receipt: `receipt_${Date.now()}`,
       notes: {
@@ -45,7 +45,7 @@ exports.createOrder = async (req, res) => {
     // Save transaction record as pending
     const transaction = await PaymentTransaction.create({
       user: req.user.id,
-      ngo: ngo.email, // CHANGE
+      ngo: ngo.email, // store as string email
       auction: auctionId || null,
       amount,
       type,
@@ -53,8 +53,8 @@ exports.createOrder = async (req, res) => {
       status: 'pending'
     });
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       order,
       transactionId: transaction._id
     });
@@ -64,15 +64,14 @@ exports.createOrder = async (req, res) => {
   }
 };
 
-
 // Verify Payment and Credit NGO Wallet (for both donations and winning bids!)
 exports.verifyPayment = async (req, res) => {
   try {
-    const { 
-      razorpay_order_id, 
-      razorpay_payment_id, 
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
       razorpay_signature,
-      transactionId 
+      transactionId
     } = req.body;
 
     // Check if it's a test payment (for development)
@@ -109,8 +108,7 @@ exports.verifyPayment = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Transaction not found' });
     }
 
-    // --- CHANGE START: for email-based NGO reference & save Transaction model ---
-    // Retrieve NGO by email for credit!
+    // --- For email-based NGO reference & save Transaction model ---
     const ngo = await NGO.findOne({ email: transaction.ngo.toLowerCase() });
     if (!ngo) {
       return res.status(404).json({ success: false, message: 'NGO not found in database' });
@@ -123,12 +121,12 @@ exports.verifyPayment = async (req, res) => {
       type: 'credit',
       amount: transaction.amount,
       domain: transaction.type === 'bid' ? 'auction' : 'donation',
-      description: isTestPayment 
-        ? `Test payment received (${transaction.type})` 
-        : transaction.type === 'bid' 
-          ? `Payment received for auction bid` 
+      description: isTestPayment
+        ? `Test payment received (${transaction.type})`
+        : transaction.type === 'bid'
+          ? `Payment received for auction bid`
           : `Direct donation received`,
-      reference: transaction._id.toString() // store payment txn id as ref
+      reference: transaction._id.toString()
     });
 
     // Emit real-time wallet update event
@@ -136,14 +134,12 @@ exports.verifyPayment = async (req, res) => {
       req.app.get('io').emit(`walletUpdate:${ngo._id}`, {});
     }
 
-    // --- CHANGE END ---
-
-    res.json({ 
-      success: true, 
-      message: isTestPayment 
-        ? 'Test payment verified and NGO wallet credited!' 
+    res.json({
+      success: true,
+      message: isTestPayment
+        ? 'Test payment verified and NGO wallet credited!'
         : 'Payment verified and NGO wallet credited!',
-      transaction,
+      transaction
       // No need to send wallet balance here, frontend will refetch
     });
   } catch (error) {
@@ -152,12 +148,11 @@ exports.verifyPayment = async (req, res) => {
   }
 };
 
-
 // Get user's payment history
 exports.getUserPayments = async (req, res) => {
   try {
     const payments = await PaymentTransaction.find({ user: req.user.id })
-      .populate('ngo', 'name email')
+      // .populate('ngo', 'name email') // REMOVE: ngo is now a string
       .populate('auction', 'title')
       .sort({ createdAt: -1 });
 
@@ -168,14 +163,13 @@ exports.getUserPayments = async (req, res) => {
   }
 };
 
-
 // Get NGO's received payments
 exports.getNGOPayments = async (req, res) => {
   try {
-    const { ngoEmail } = req.params; // CHANGE
-    const payments = await PaymentTransaction.find({ 
+    const { ngoEmail } = req.params; // expect param to be email string
+    const payments = await PaymentTransaction.find({
       ngo: ngoEmail.toLowerCase(),
-      status: 'success' 
+      status: 'success'
     })
       .populate('user', 'name email')
       .populate('auction', 'title')
