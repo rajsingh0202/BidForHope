@@ -15,8 +15,8 @@ async function runAutoBids() {
       // 1. Get auction & make sure it's active
       const auction = await Auction.findById(autoBid.auction);
       if (!auction || auction.status !== 'active') {
-        // Optionally, mark autoBid inactive
-        await AutoBid.findByIdAndUpdate(autoBid._id, { isActive: false });
+        // Mark autoBid inactive with reason
+        await AutoBid.findByIdAndUpdate(autoBid._id, { isActive: false, stopReason: 'auction-ended' });
         continue;
       }
 
@@ -36,9 +36,9 @@ async function runAutoBids() {
       // 4. Next bid amount
       const nextBid = highestBid ? highestBid.amount + auction.bidIncrement : auction.startingPrice;
 
-      // 5. Max reached? Stop
+      // 5. Max reached? Stop and set reason
       if (nextBid > autoBid.maxAmount) {
-        await AutoBid.findByIdAndUpdate(autoBid._id, { isActive: false });
+        await AutoBid.findByIdAndUpdate(autoBid._id, { isActive: false, stopReason: 'max-amount' });
         continue;
       }
 
@@ -54,6 +54,15 @@ async function runAutoBids() {
       auction.currentPrice = nextBid;
       auction.totalBids = (auction.totalBids || 0) + 1;
       await auction.save();
+
+      // Optionally: emit socket event if you have global io available (not required if handled elsewhere)
+      // if (typeof global._io !== 'undefined') {
+      //   const io = global._io;
+      //   const allBids = await Bid.find({ auction: auction._id })
+      //     .populate('bidder', 'name email')
+      //     .sort('-time');
+      //   io.to(auction._id.toString()).emit('auctionBidUpdate', allBids);
+      // }
     }
   } catch (err) {
     console.error('[AutoBid Cron]', err);
@@ -61,4 +70,4 @@ async function runAutoBids() {
 }
 
 // Start interval (every 2 seconds)
-setInterval(runAutoBids, 2000);
+setInterval(runAutoBids, 1000);

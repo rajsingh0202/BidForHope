@@ -1,6 +1,8 @@
 const Bid = require('../models/Bid');
 const Auction = require('../models/Auction');
+const AutoBid = require('../models/AutoBid'); // <-- ADD THIS LINE!
 const io = global._io;
+
 
 // Place a bid
 exports.placeBid = async (req, res) => {
@@ -35,15 +37,26 @@ exports.placeBid = async (req, res) => {
     auction.totalBids = (auction.totalBids || 0) + 1;
     await auction.save();
 
-if (io) {
-  // Get all latest bids after new bid created
-  const allBids = await Bid.find({ auction: auctionId })
-    .populate('bidder', 'name email')
-    .sort('-time');
-  // Emit only to users in the auction room
-  io.to(auctionId.toString()).emit('auctionBidUpdate', allBids);
-}
+    // === AUTO-BID CLEANUP: Disable any auto-bidder whose max <= current price ===
+    const activeAutoBids = await AutoBid.find({ auction: auctionId, isActive: true });
+    for (const ab of activeAutoBids) {
+      if (ab.maxAmount <= auction.currentPrice) {
+        await AutoBid.findOneAndUpdate(
+          { user: ab.user, auction: auctionId },
+          { isActive: false, stopReason: 'max-amount' }
+        );
+      }
+    }
+    // === END AUTO-BID CLEANUP ===
 
+    if (io) {
+      // Get all latest bids after new bid created
+      const allBids = await Bid.find({ auction: auctionId })
+        .populate('bidder', 'name email')
+        .sort('-time');
+      // Emit only to users in the auction room
+      io.to(auctionId.toString()).emit('auctionBidUpdate', allBids);
+    }
 
     res.status(201).json({
       success: true,
@@ -54,6 +67,7 @@ if (io) {
     res.status(400).json({ success: false, message: error.message });
   }
 };
+
 
 // Get all bids for an auction
 exports.getAuctionBids = async (req, res) => {
@@ -71,6 +85,7 @@ exports.getAuctionBids = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 // Get all bids for logged-in user
 exports.getUserBids = async (req, res) => {
