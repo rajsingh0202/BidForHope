@@ -13,6 +13,8 @@ const router = express.Router();
 router.post('/create-order', protect, createOrder);
 router.post('/verify', protect, verifyPayment);
 router.get('/user-payments', protect, getUserPayments);
-router.get('/ngo-payments/:ngoId', protect, getNGOPayments);
+
+// CHANGE: ngoId → ngoEmail (param matches controller)
+router.get('/ngo-payments/:ngoEmail', protect, getNGOPayments);
 
 module.exports = router;
