@@ -4,9 +4,7 @@ const Transaction = require('../models/Transaction');
 const Bid = require('../models/Bid');
 const io = global._io;
 
-const PendingUser = require('../models/PendingUser');
-const User = require('../models/User');
-const nodemailer = require('nodemailer');
+
 // Import the io instance
 // @desc    Get all auctions
 // @route   GET /api/auctions
@@ -43,7 +41,7 @@ exports.getAuctions = async (req, res) => {
 exports.getAuction = async (req, res) => {
   try {
     const auction = await Auction.findById(req.params.id)
-      .populate('ngo', 'name description logo isVerified')
+      .populate('ngo', 'name email description logo isVerified')
       .populate('organizer', 'name email')
       .populate('winner', 'name email');
 
@@ -524,87 +522,3 @@ exports.directDonate = async (req, res) => {
   }
 };
 
-// SEND OTP Controller
-exports.requestOtp = async (req, res) => {
-  const {
-    email, name, password, role, ngoName, placeAddress, workingYears, domains
-  } = req.body;
-
-  // Block if user already registered or pending
-  if (await User.findOne({ email }) || await PendingUser.findOne({ email })) {
-    return res.status(400).json({ message: 'Email already exists or is pending verification' });
-  }
-
-  // Generate random OTP
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-  // Save pending registration
-  await PendingUser.create({
-    name,
-    email,
-    password,
-    role,
-    ngoName,
-    placeAddress,
-    workingYears,
-    domains,
-    otp,
-    otpExpires
-  });
-
-  // Send OTP email
-  // Setup your SMTP credentials (use ethereal for testing, or your own email service)
-  const transporter = nodemailer.createTransport({
-    host: "smtp.ethereal.email",
-    port: 587,
-    auth: {
-      user: process.env.ETHEREAL_USER, // or set it in .env
-      pass: process.env.ETHEREAL_PASS  // or set it in .env
-    }
-  });
-  await transporter.sendMail({
-    from: '"BidForHope" <noreply@yourdomain.com>',
-    to: email,
-    subject: 'Your BidForHope OTP Verification',
-    text: `Your OTP for BidForHope registration is: ${otp}`,
-  });
-
-  res.json({ success: true, message: 'OTP sent to your email' });
-};
-
-// VERIFY OTP Controller
-exports.verifyOtp = async (req, res) => {
-  const { email, otp } = req.body;
-  const pending = await PendingUser.findOne({ email, otp });
-  if (!pending) return res.status(400).json({ message: 'Invalid OTP' });
-  if (pending.otpExpires < Date.now()) {
-    await PendingUser.deleteOne({ email });
-    return res.status(400).json({ message: 'OTP expired, please resend' });
-  }
-
-  // Prepare user info for User model
-  let userPayload = {
-    name: pending.name,
-    email: pending.email,
-    password: pending.password,
-    role: pending.role,
-  };
-  // Add NGO fields if role is 'ngo'
-  if (pending.role === 'ngo') {
-    userPayload.ngoName = pending.ngoName;
-    userPayload.placeAddress = pending.placeAddress;
-    userPayload.workingYears = pending.workingYears;
-    userPayload.domains = pending.domains;
-    userPayload.status = 'pending';
-  }
-
-  await User.create(userPayload);
-  await PendingUser.deleteOne({ email });
-
-  if (pending.role === 'user') {
-    res.json({ success: true, message: 'Registration successful!' });
-  } else {
-    res.json({ success: true, message: 'NGO registration submitted. Await admin approval.' });
-  }
-};
