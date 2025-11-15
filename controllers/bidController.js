@@ -35,9 +35,15 @@ exports.placeBid = async (req, res) => {
     auction.totalBids = (auction.totalBids || 0) + 1;
     await auction.save();
 
-  if (io) {
-  io.emit(`auctionBidUpdate:${auctionId}`);
+if (io) {
+  // Get all latest bids after new bid created
+  const allBids = await Bid.find({ auction: auctionId })
+    .populate('bidder', 'name email')
+    .sort('-time');
+  // Emit only to users in the auction room
+  io.to(auctionId.toString()).emit('auctionBidUpdate', allBids);
 }
+
 
     res.status(201).json({
       success: true,

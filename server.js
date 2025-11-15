@@ -41,11 +41,30 @@ const io = new Server(server, {
   }
 });
 app.set('io', io);      // Enable io for all requests!
-global._io = io;    
+global._io = io;
 
-    // You can keep this if needed
+
+// ===== Socket.IO Event Listeners =====
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  // Listen for room join from client
+  socket.on('joinAuctionRoom', (auctionId) => {
+    socket.join(auctionId.toString());
+    console.log(`Socket ${socket.id} joined auction room: ${auctionId}`);
+  });
+
+  // Optionally listen for leaving room or other custom events
+  // socket.on('leaveAuctionRoom', (auctionId) => {
+  //   socket.leave(auctionId.toString());
+  //   console.log(`Socket ${socket.id} left auction room: ${auctionId}`);
+  // });
+
+  // You can put more listeners or emitters here as needed
+});
 
 // ===========================================================
+
 
 // ====== NOW setup all your routes (AFTER io is set): ======
 app.use('/api/auth', require('./routes/auth'));
