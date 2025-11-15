@@ -38,6 +38,7 @@ exports.updateBankDetails = async (req, res) => {
 // @desc    Get NGO bank details by email (no auth)
 // @route   GET /api/ngos/bank-details?email=...
 exports.getBankDetails = async (req, res) => {
+  console.log("Request received for bank details for email:", req.query.email); 
   try {
     const email = req.query.email && req.query.email.toLowerCase();
     if (!email) {
