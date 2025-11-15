@@ -42,14 +42,7 @@ const io = new Server(server, {
 });
 app.set('io', io);      // Enable io for all requests!
 global._io = io;    
-io.on('connection', (socket) => {
-  socket.on('joinAuctionRoom', (auctionId) => {
-    socket.join(auctionId);
-  });
-  socket.on('leaveAuctionRoom', (auctionId) => {
-    socket.leave(auctionId);
-  });
-});
+
     // You can keep this if needed
 
 // ===========================================================

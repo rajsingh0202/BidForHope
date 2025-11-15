@@ -35,10 +35,9 @@ exports.placeBid = async (req, res) => {
     auction.totalBids = (auction.totalBids || 0) + 1;
     await auction.save();
 
-    // Emit bid update event for this auction (real-time refresh for all clients)
-    if (io) {
-      io.to(auctionId.toString()).emit('bidPlaced');
-    }
+  if (io) {
+  io.emit(`auctionBidUpdate:${auctionId}`);
+}
 
     res.status(201).json({
       success: true,

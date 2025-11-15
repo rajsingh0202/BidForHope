@@ -346,7 +346,6 @@ exports.endAuction = async (req, res) => {
     await auction.save();
     if (auction.status === 'ended') {
       io.emit('auctionUpdated');
-      io.to(auction._id.toString()).emit('auctionEnded'); // <--- Added for real-time
       if (auction.ngo && auction.ngo._id) {
         io.emit(`walletUpdate:${auction.ngo._id.toString()}`);
       }
