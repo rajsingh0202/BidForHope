@@ -5,7 +5,7 @@ const Bid = require('../models/Bid');
 const io = global._io;
 
 
-// Import the io instance
+// Import the io instance hello
 // @desc    Get all auctions
 // @route   GET /api/auctions
 exports.getAuctions = async (req, res) => {
