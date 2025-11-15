@@ -40,10 +40,11 @@ const io = new Server(server, {
     credentials: true
   }
 });
-global._io = io; // <-- This is now before ALL routes
+app.set('io', io);      // ← Enable io for all requests!
+global._io = io;        // ← You can keep this if needed
 // ===========================================================
 
-// ====== NOW setup all your routes (AFTER global._io is set): ======
+// ====== NOW setup all your routes (AFTER io is set): ======
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/auctions', require('./routes/auction'));
 app.use('/api/ngos', require('./routes/ngo'));
@@ -65,7 +66,15 @@ app.get('/', (req, res) => {
   });
 });
 
-// No need to re-import auctionRoutes here—a single `app.use` is enough
+// Payment/withdrawal routes
+const paymentRoutes = require('./routes/payment');
+const withdrawalRoutes = require('./routes/withdrawal');
+app.use('/api/payment', paymentRoutes);
+app.use('/api/withdrawals', withdrawalRoutes);
+
+// Payout routes
+const payoutRoutes = require('./routes/payoutRoutes'); // adjust path as needed
+app.use('/api/payouts', payoutRoutes);
 
 // Start server
 const PORT = process.env.PORT || 5000;
@@ -78,19 +87,3 @@ process.on('unhandledRejection', (err) => {
   console.log(`Error: ${err.message}`);
   server.close(() => process.exit(1));
 });
-
-
-// Add these imports
-const paymentRoutes = require('./routes/payment');
-const withdrawalRoutes = require('./routes/withdrawal');
-
-// Add these routes (after your existing routes)
-app.use('/api/payment', paymentRoutes);
-app.use('/api/withdrawals', withdrawalRoutes);
-
-
-// app.js or server.js
-const payoutRoutes = require('./routes/payoutRoutes'); // adjust path as needed
-
-// Place this after you initialize Express and before starting your server:
-app.use('/api/payouts', payoutRoutes);

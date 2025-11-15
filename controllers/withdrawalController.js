@@ -54,6 +54,7 @@ exports.getBankDetails = async (req, res) => {
   }
 };
 
+
 // @desc    Create withdrawal request (no auth, sends ngoEmail in body)
 // @route   POST /api/withdrawals/request
 exports.createWithdrawalRequest = async (req, res) => {
@@ -95,6 +96,12 @@ exports.createWithdrawalRequest = async (req, res) => {
       description,
       bankDetails: ngo.bankDetails
     });
+
+    // --- Socket.IO event here ---
+    if (req.app.get('io')) {
+      req.app.get('io').emit('withdrawalRequested', withdrawal);
+    }
+
     res.status(201).json({
       success: true,
       message: 'Withdrawal request submitted successfully',
@@ -202,6 +209,12 @@ exports.processWithdrawalRequest = async (req, res) => {
     withdrawal.processedAt = new Date();
     withdrawal.adminNote = adminNote || '';
     await withdrawal.save();
+
+    // --- Socket.IO event here ---
+    if (req.app.get('io')) {
+      req.app.get('io').emit('withdrawalProcessed', withdrawal);
+    }
+
     res.status(200).json({
       success: true,
       message: `Withdrawal request ${status} successfully`,
@@ -212,7 +225,6 @@ exports.processWithdrawalRequest = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
-
 
 // @desc    Approve withdrawal manually (secret code, debits NGO wallet only, no payout)
 // @route   POST /api/withdrawals/:id/approve-manual
@@ -255,6 +267,11 @@ exports.approveManualWithdrawal = async (req, res) => {
     withdrawal.processedAt = new Date();
     withdrawal.adminNote = "Manual approval using secret code";
     await withdrawal.save();
+
+    // --- Socket.IO event here ---
+    if (req.app.get('io')) {
+      req.app.get('io').emit('withdrawalProcessed', withdrawal);
+    }
 
     res.status(200).json({
       success: true,
