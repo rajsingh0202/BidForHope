@@ -32,6 +32,7 @@ const { Server } = require('socket.io');
 const io = new Server(server, {
   cors: {
     origin: [
+      'https://bid-for-hope-frontend.vercel.app/',
       'http://localhost:3000',
       'https://bidforhope-frontend-1.vercel.app',
       'https://bid-for-hope-frontend-git-master-raj-singh-0202s-projects.vercel.app',
