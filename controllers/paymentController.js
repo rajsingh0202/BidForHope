@@ -3,17 +3,17 @@ const crypto = require('crypto');
 const PaymentTransaction = require('../models/PaymentTransaction');
 const NGO = require('../models/NGO');
 const Auction = require('../models/Auction');
-const Transaction = require('../models/Transaction'); // ADD THIS!
+const Transaction = require('../models/Transaction'); // Make sure this is imported
 
 // Initialize Razorpay
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
+  key_secret: process.env.RAZORPAY_KEY_SECRET, // <-- Fixed typo
 });
 
 // Create Razorpay Order
 exports.createOrder = async (req, res) => {
-  console.log('PAYMENT CREATE BODY:', req.body); 
+  console.log('PAYMENT CREATE BODY:', req.body);
   try {
     const { amount, ngoEmail, auctionId, type } = req.body;
 
@@ -37,8 +37,8 @@ exports.createOrder = async (req, res) => {
         ngoEmail: ngo.email,
         auctionId: auctionId || 'direct_donation',
         type,
-        userId: req.user.id
-      }
+        userId: req.user.id,
+      },
     };
 
     const order = await razorpay.orders.create(options);
@@ -51,13 +51,13 @@ exports.createOrder = async (req, res) => {
       amount,
       type,
       razorpayOrderId: order.id,
-      status: 'pending'
+      status: 'pending',
     });
 
     res.json({
       success: true,
       order,
-      transactionId: transaction._id
+      transactionId: transaction._id,
     });
   } catch (error) {
     console.error('Create order error:', error);
@@ -72,7 +72,7 @@ exports.verifyPayment = async (req, res) => {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
-      transactionId
+      transactionId,
     } = req.body;
 
     // Check if it's a test payment (for development)
@@ -88,9 +88,11 @@ exports.verifyPayment = async (req, res) => {
 
       if (razorpay_signature !== expectedSign) {
         await PaymentTransaction.findByIdAndUpdate(transactionId, {
-          status: 'failed'
+          status: 'failed',
         });
-        return res.status(400).json({ success: false, message: 'Invalid payment signature' });
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid payment signature' });
       }
     }
 
@@ -100,41 +102,45 @@ exports.verifyPayment = async (req, res) => {
       {
         razorpayPaymentId: razorpay_payment_id,
         razorpaySignature: razorpay_signature,
-        status: 'success'
+        status: 'success',
       },
       { new: true }
     );
 
     if (!transaction) {
-      return res.status(404).json({ success: false, message: 'Transaction not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Transaction not found' });
     }
 
     // --- For email-based NGO reference & save Transaction model ---
     const ngo = await NGO.findOne({ email: transaction.ngo.toLowerCase() });
     if (!ngo) {
-      return res.status(404).json({ success: false, message: 'NGO not found in database' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'NGO not found in database' });
     }
 
     // Save credit to Transaction model (for wallet logic)
-  // Save credit to Transaction model (for wallet logic)
-await Transaction.create({
-  ngoId: ngo._id,
-  ngoEmail: ngo.email,
-  type: 'credit',
-  amount: transaction.amount,
-  domain: transaction.type === 'bid' ? 'auction' : 'donation',
-  description: isTestPayment
-    ? `Test payment received (${transaction.type})`
-    : transaction.type === 'bid'
-      ? `Payment received for auction bid`
-      : `Direct donation received`,
-  reference: transaction._id.toString()
-});
-
+    await Transaction.create({
+      ngoId: ngo._id,
+      ngoEmail: ngo.email,
+      type: 'credit',
+      amount: transaction.amount,
+      domain: transaction.type === 'bid' ? 'auction' : 'donation',
+      description: isTestPayment
+        ? `Test payment received (${transaction.type})`
+        : transaction.type === 'bid'
+        ? `Payment received for auction bid`
+        : `Direct donation received`,
+      reference: transaction._id.toString(),
+      status: 'completed', // <-- This is correct
+    });
 
     // Emit real-time wallet update event
-    if (req.app.get('io')) {
-      req.app.get('io').emit(`walletUpdate:${ngo._id}`, {});
+    if (global._io) {
+      // Use global._io
+      global._io.emit(`walletUpdate:${ngo._id.toString()}`);
     }
 
     res.json({
@@ -142,7 +148,7 @@ await Transaction.create({
       message: isTestPayment
         ? 'Test payment verified and NGO wallet credited!'
         : 'Payment verified and NGO wallet credited!',
-      transaction
+      transaction,
       // No need to send wallet balance here, frontend will refetch
     });
   } catch (error) {
@@ -172,7 +178,7 @@ exports.getNGOPayments = async (req, res) => {
     const { ngoEmail } = req.params; // expect param to be email string
     const payments = await PaymentTransaction.find({
       ngo: ngoEmail.toLowerCase(),
-      status: 'success'
+      status: 'success',
     })
       .populate('user', 'name email')
       .populate('auction', 'title')

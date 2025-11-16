@@ -27,12 +27,12 @@ exports.getAuctions = async (req, res) => {
     res.status(200).json({
       success: true,
       count: auctions.length,
-      data: auctions
+      data: auctions,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -49,7 +49,7 @@ exports.getAuction = async (req, res) => {
     if (!auction) {
       return res.status(404).json({
         success: false,
-        message: 'Auction not found'
+        message: 'Auction not found',
       });
     }
 
@@ -66,12 +66,12 @@ exports.getAuction = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: auction
+      data: auction,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -89,12 +89,12 @@ exports.getAllAuctionsForUser = async (req, res) => {
     res.status(200).json({
       success: true,
       count: auctions.length,
-      data: auctions
+      data: auctions,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -119,14 +119,21 @@ exports.createAuction = async (req, res) => {
       allowDirectDonation,
       enableAutoBidding,
       status,
-      images
+      images,
     } = req.body;
 
     // Validate required fields
-    if (!title || !description || !startingPrice || !ngo || !startDate || !endDate) {
+    if (
+      !title ||
+      !description ||
+      !startingPrice ||
+      !ngo ||
+      !startDate ||
+      !endDate
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields'
+        message: 'Please provide all required fields',
       });
     }
 
@@ -155,7 +162,7 @@ exports.createAuction = async (req, res) => {
       category: category || 'art',
       allowDirectDonation: allowDirectDonation !== false,
       enableAutoBidding: enableAutoBidding !== false,
-      images: images || []
+      images: images || [],
     };
 
     if (isUrgent === true && urgentCause && urgentCause.trim() !== '') {
@@ -177,20 +184,21 @@ exports.createAuction = async (req, res) => {
       .populate('ngo', 'name email isVerified')
       .populate('organizer', 'name email');
 
-    const message = req.user.role === 'ngo'
-      ? 'Auction created and sent for admin approval'
-      : 'Auction created successfully';
+    const message =
+      req.user.role === 'ngo'
+        ? 'Auction created and sent for admin approval'
+        : 'Auction created successfully';
 
     res.status(201).json({
       success: true,
       message,
-      data: populatedAuction
+      data: populatedAuction,
     });
   } catch (error) {
     console.error('Create auction error:', error);
     res.status(400).json({
       success: false,
-      message: error.message || 'Failed to create auction'
+      message: error.message || 'Failed to create auction',
     });
   }
 };
@@ -208,12 +216,12 @@ exports.getPendingAuctions = async (req, res) => {
     res.status(200).json({
       success: true,
       count: auctions.length,
-      data: auctions
+      data: auctions,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -226,16 +234,16 @@ exports.approveAuction = async (req, res) => {
     const auction = await Auction.findById(req.params.id);
 
     if (!auction) {
-      return res.status(404).json({
+      return res.status(440).json({
         success: false,
-        message: 'Auction not found'
+        message: 'Auction not found',
       });
     }
 
     if (auction.status !== 'pending') {
       return res.status(400).json({
         success: false,
-        message: 'Only pending auctions can be approved'
+        message: 'Only pending auctions can be approved',
       });
     }
 
@@ -256,12 +264,12 @@ exports.approveAuction = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Auction approved successfully',
-      data: populatedAuction
+      data: populatedAuction,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -277,14 +285,14 @@ exports.rejectAuction = async (req, res) => {
     if (!auction) {
       return res.status(404).json({
         success: false,
-        message: 'Auction not found'
+        message: 'Auction not found',
       });
     }
 
     if (auction.status !== 'pending') {
       return res.status(400).json({
         success: false,
-        message: 'Only pending auctions can be rejected'
+        message: 'Only pending auctions can be rejected',
       });
     }
 
@@ -299,12 +307,12 @@ exports.rejectAuction = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Auction rejected',
-      data: populatedAuction
+      data: populatedAuction,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -314,20 +322,22 @@ exports.rejectAuction = async (req, res) => {
 // @access  Private (Admin)
 exports.endAuction = async (req, res) => {
   try {
-    const auction = await Auction.findById(req.params.id)
-      .populate('ngo', 'name email isVerified _id');
+    const auction = await Auction.findById(req.params.id).populate(
+      'ngo',
+      'name email isVerified _id'
+    );
 
     if (!auction) {
       return res.status(404).json({
         success: false,
-        message: 'Auction not found'
+        message: 'Auction not found',
       });
     }
 
     if (auction.status === 'ended') {
       return res.status(400).json({
         success: false,
-        message: 'Auction has already ended'
+        message: 'Auction has already ended',
       });
     }
 
@@ -344,33 +354,38 @@ exports.endAuction = async (req, res) => {
     auction.status = 'ended';
     auction.endDate = new Date();
     await auction.save();
-   if (auction.status === 'ended') {
-  io.to(auction._id.toString()).emit('auctionEnded');
-  io.emit('auctionUpdated');
-  if (auction.ngo && auction.ngo._id) {
-    io.emit(`walletUpdate:${auction.ngo._id.toString()}`);
-  }
-}
+    if (auction.status === 'ended') {
+      io.to(auction._id.toString()).emit('auctionEnded');
+      io.emit('auctionUpdated');
+      if (auction.ngo && auction.ngo._id) {
+        // We still emit a wallet update, just in case, but no transaction is made
+        io.emit(`walletUpdate:${auction.ngo._id.toString()}`);
+      }
+    }
 
-
-    // Add credit transaction for NGO
+    // ==========================================================
+    // == PENDING TRANSACTION BLOCK IS NOW REMOVED ==
+    // ==========================================================
+    /*
+    // THIS BLOCK WAS REMOVED:
     if (
       auction.ngo &&
       auction.ngo._id &&
       auction.ngo.email &&
       auction.currentPrice > 0
     ) {
-     await Transaction.create({
-  ngoId: auction.ngo._id,
-  ngoEmail: auction.ngo.email,
-  type: 'credit',
-  amount: auction.currentPrice,
-  reference: `Auction: ${auction.title}`,
-  description: `Auction funds pending winner payment - Winner: ${winnerName}`,
-  status: 'pending'
-});
-
+      await Transaction.create({
+        ngoId: auction.ngo._id,
+        ngoEmail: auction.ngo.email,
+        type: 'credit',
+        amount: auction.currentPrice,
+        reference: `Auction: ${auction.title}`,
+        description: `Auction funds pending winner payment - Winner: ${winnerName}`,
+        status: 'pending'
+      });
     }
+    */
+    // ==========================================================
 
     const populatedAuction = await Auction.findById(auction._id)
       .populate('ngo', 'name email isVerified')
@@ -379,12 +394,12 @@ exports.endAuction = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Auction ended successfully',
-      data: populatedAuction
+      data: populatedAuction,
     });
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -398,30 +413,33 @@ exports.updateAuction = async (req, res) => {
     if (!auction) {
       return res.status(404).json({
         success: false,
-        message: 'Auction not found'
+        message: 'Auction not found',
       });
     }
 
-    if (auction.organizer.toString() !== req.user.id && req.user.role !== 'admin') {
+    if (
+      auction.organizer.toString() !== req.user.id &&
+      req.user.role !== 'admin'
+    ) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to update this auction'
+        message: 'Not authorized to update this auction',
       });
     }
 
     auction = await Auction.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
-      runValidators: true
+      runValidators: true,
     });
 
     res.status(200).json({
       success: true,
-      data: auction
+      data: auction,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -435,14 +453,17 @@ exports.deleteAuction = async (req, res) => {
     if (!auction) {
       return res.status(404).json({
         success: false,
-        message: 'Auction not found'
+        message: 'Auction not found',
       });
     }
 
-    if (auction.organizer.toString() !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({
+    if (
+      auction.organizer.toString() !== req.user.id &&
+      req.user.role !== 'admin'
+    ) {
+      return res.status(4403).json({
         success: false,
-        message: 'Not authorized to delete this auction'
+        message: 'Not authorized to delete this auction',
       });
     }
 
@@ -450,12 +471,12 @@ exports.deleteAuction = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: {}
+      data: {},
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -472,28 +493,37 @@ exports.getUrgentAuctions = async (req, res) => {
     res.status(200).json({
       success: true,
       count: auctions.length,
-      data: auctions
+      data: auctions,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
 
-// @desc   Direct donation to NGO from auction
-// @route  POST /api/auctions/:id/donate
+// @desc  Direct donation to NGO from auction
+// @route POST /api/auctions/:id/donate
 exports.directDonate = async (req, res) => {
   try {
     const { amount, donorName, donorMessage } = req.body;
     if (!amount || amount <= 0) {
-      return res.status(400).json({ success: false, message: 'Donation amount must be greater than 0.' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Donation amount must be greater than 0.' });
     }
-    const auction = await Auction.findById(req.params.id).populate('ngo', 'name email _id');
+    const auction = await Auction.findById(req.params.id).populate(
+      'ngo',
+      'name email _id'
+    );
     if (!auction || !auction.ngo) {
-      return res.status(404).json({ success: false, message: 'Auction or NGO not found.' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Auction or NGO not found.' });
     }
+    
+    // For direct donations, we can set status to 'completed' right away
     await Transaction.create({
       ngoId: auction.ngo._id,
       ngoEmail: auction.ngo.email,
@@ -502,7 +532,8 @@ exports.directDonate = async (req, res) => {
       reference: `Direct Donation via Auction: ${auction.title}`,
       description: donorMessage
         ? `Direct donation by ${donorName || 'Anonymous'}: ${donorMessage}`
-        : `Direct donation by ${donorName || 'Anonymous'}`
+        : `Direct donation by ${donorName || 'Anonymous'}`,
+      status: 'completed' // <-- Set to completed
     });
 
     if (auction.ngo && auction.ngo._id) {
