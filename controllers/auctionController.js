@@ -360,14 +360,16 @@ exports.endAuction = async (req, res) => {
       auction.ngo.email &&
       auction.currentPrice > 0
     ) {
-      await Transaction.create({
-        ngoId: auction.ngo._id,
-        ngoEmail: auction.ngo.email,
-        type: 'credit',
-        amount: auction.currentPrice,
-        reference: `Auction: ${auction.title}`,
-        description: `Auction funds collected - Winner: ${winnerName}`,
-      });
+     await Transaction.create({
+  ngoId: auction.ngo._id,
+  ngoEmail: auction.ngo.email,
+  type: 'credit',
+  amount: auction.currentPrice,
+  reference: `Auction: ${auction.title}`,
+  description: `Auction funds pending winner payment - Winner: ${winnerName}`,
+  status: 'pending'
+});
+
     }
 
     const populatedAuction = await Auction.findById(auction._id)

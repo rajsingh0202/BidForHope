@@ -116,19 +116,21 @@ exports.verifyPayment = async (req, res) => {
     }
 
     // Save credit to Transaction model (for wallet logic)
-    await Transaction.create({
-      ngoId: ngo._id,
-      ngoEmail: ngo.email,
-      type: 'credit',
-      amount: transaction.amount,
-      domain: transaction.type === 'bid' ? 'auction' : 'donation',
-      description: isTestPayment
-        ? `Test payment received (${transaction.type})`
-        : transaction.type === 'bid'
-          ? `Payment received for auction bid`
-          : `Direct donation received`,
-      reference: transaction._id.toString()
-    });
+  // Save credit to Transaction model (for wallet logic)
+await Transaction.create({
+  ngoId: ngo._id,
+  ngoEmail: ngo.email,
+  type: 'credit',
+  amount: transaction.amount,
+  domain: transaction.type === 'bid' ? 'auction' : 'donation',
+  description: isTestPayment
+    ? `Test payment received (${transaction.type})`
+    : transaction.type === 'bid'
+      ? `Payment received for auction bid`
+      : `Direct donation received`,
+  reference: transaction._id.toString()
+});
+
 
     // Emit real-time wallet update event
     if (req.app.get('io')) {
