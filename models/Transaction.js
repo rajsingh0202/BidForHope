@@ -8,7 +8,7 @@ const TransactionSchema = new mongoose.Schema({
   reference: { type: String },
   description: { type: String },
   domain: { type: String },
-  status: { type: String, enum: ['pending', 'debited','completed'], default: 'pending' }, // <-- Add this line!
+  status: { type: String, enum: ['pending', 'debited','completed'], default: 'completed' }, // <-- Add this line!
   createdAt: { type: Date, default: Date.now }
 });
 
