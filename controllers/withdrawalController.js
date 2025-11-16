@@ -201,7 +201,8 @@ exports.processWithdrawalRequest = async (req, res) => {
         amount: withdrawal.amount,
         domain: withdrawal.domain,
         description: withdrawal.description || `Withdrawal approved - ${withdrawal.bankDetails.accountNumber}`,
-        reference: withdrawal._id.toString()
+        reference: withdrawal._id.toString(),
+        status: 'debited',  
       });
     }
     // Update withdrawal request
@@ -259,7 +260,8 @@ exports.approveManualWithdrawal = async (req, res) => {
       amount: withdrawal.amount,
       domain: withdrawal.domain,
       description: withdrawal.description || `Withdrawal approved - ${withdrawal.bankDetails.accountNumber}`,
-      reference: withdrawal._id.toString()
+      reference: withdrawal._id.toString(),
+      status: 'debited',  
     });
 
     // Update withdrawal request
