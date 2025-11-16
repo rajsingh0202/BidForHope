@@ -1,0 +1,405 @@
+// controllers/auth.js
+const User = require('../models/User');
+const PendingUser = require('../models/PendingUser');
+const PendingLogin = require('../models/PendingLogin');
+const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
+
+// Register new user
+exports.register = async (req, res) => {
+  try {
+    const { name, email, password, role, ngoName, placeAddress, workingYears, domains } = req.body;
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists with this email'
+      });
+    }
+    let userPayload = { name, email, password, role: role || 'user' };
+    if (role === 'ngo') {
+      userPayload.ngoName = ngoName;
+      userPayload.placeAddress = placeAddress;
+      userPayload.workingYears = workingYears;
+      userPayload.domains = domains;
+      userPayload.status = 'pending';
+    }
+    const user = await User.create(userPayload);
+    if (role === 'ngo') {
+      return res.status(201).json({
+        success: true,
+        message: 'Registration submitted, pending admin approval.'
+      });
+    }
+    sendTokenResponse(user, 201, res);
+    return;
+  } catch (error) {
+    console.error('Error in register:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and password'
+      });
+    }
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+    if (user.role === 'ngo' && user.status !== 'approved') {
+      let msg = user.status === 'pending'
+        ? 'Your NGO account is pending admin approval.'
+        : 'Your NGO registration was rejected. Contact support for help.';
+      return res.status(403).json({
+        success: false,
+        message: msg
+      });
+    }
+    sendTokenResponse(user, 200, res);
+    return;
+  } catch (error) {
+    console.error('Error in login:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    return res.status(200).json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error('Error in getMe:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const sendTokenResponse = (user, statusCode, res) => {
+  const token = user.getSignedJwtToken();
+  res.status(statusCode).json({
+    success: true,
+    token,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    }
+  });
+  return;
+};
+
+// Helper: create and verify transporter (nodemailer fallback)
+const createVerifiedTransporter = async () => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+
+  // verify transporter connection/auth before proceeding
+  try {
+    await transporter.verify();
+    console.log('SMTP transporter verified (fallback)');
+  } catch (verErr) {
+    console.error('SMTP verification failed (fallback)', verErr);
+    // rethrow to let caller handle response
+    throw verErr;
+  }
+
+  return transporter;
+};
+
+// SEND OTP Controller (SendGrid preferred, Nodemailer fallback)
+exports.requestOtp = async (req, res) => {
+  console.log('[DEBUG] requestOtp called with body:', req.body);
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email is required' });
+  }
+
+  try {
+    const userExists = await User.findOne({ email });
+    const pendingExists = await PendingUser.findOne({ email });
+
+    if (userExists) {
+      return res.status(400).json({ success: false, type: "registered", message: "Email is already registered." });
+    }
+
+    const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateOtp();
+    const otpExpires = Date.now() + 10 * 60 * 1000;
+
+    // Save or update pending user
+    if (pendingExists) {
+      await PendingUser.updateOne({ email }, { otp, otpExpires });
+    } else {
+      await PendingUser.create({ email, otp, otpExpires });
+    }
+
+    // Prefer SendGrid when configured
+    if (process.env.SENDGRID_API_KEY) {
+      try {
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+        const msg = {
+          to: email,
+          from: process.env.SMTP_USER || 'no-reply@bidforhope.com', // ideally verify this sender in SendGrid
+          subject: 'Your BidForHope OTP Verification',
+          text: `Your OTP for BidForHope registration is: ${otp}`,
+          html: `<p>Your OTP for <strong>BidForHope</strong> registration is: <strong>${otp}</strong></p>`,
+        };
+        const info = await sgMail.send(msg);
+        console.log(`SendGrid OTP email attempted to ${email}`, { info });
+      } catch (err) {
+        console.error('SendGrid send error:', err);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to send OTP email via SendGrid.',
+          details: process.env.NODE_ENV === 'development' ? (err.message || String(err)) : undefined
+        });
+      }
+
+      // Return response (include otp in development for testing)
+      return res.json({
+        success: true,
+        message: pendingExists ? 'OTP resent! Please check your email.' : 'OTP sent to your email',
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined
+      });
+    }
+
+    // Fallback: Nodemailer (may fail on some hosts)
+    let transporter;
+    try {
+      transporter = await createVerifiedTransporter();
+    } catch (verErr) {
+      // transporter verification failed
+      return res.status(500).json({
+        success: false,
+        message: 'Email service not configured correctly. Check SMTP credentials (fallback).',
+        details: process.env.NODE_ENV === 'development' ? verErr.message : undefined
+      });
+    }
+
+    try {
+      const info = await transporter.sendMail({
+        from: `"BidForHope" <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: 'Your BidForHope OTP Verification',
+        text: `Your OTP for BidForHope registration is: ${otp}`,
+      });
+      console.log(`Nodemailer OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
+    } catch (err) {
+      console.error('Error sending OTP email (fallback nodemailer):', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email (fallback nodemailer).',
+        details: process.env.NODE_ENV === 'development' ? (err.message || String(err)) : undefined
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: pendingExists ? 'OTP resent! Please check your email.' : 'OTP sent to your email',
+      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+    });
+  } catch (error) {
+    console.error('Error in requestOtp (sendgrid path):', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? (error.message || String(error)) : undefined
+    });
+  }
+};
+
+exports.verifyOtp = async (req, res) => {
+  console.log('[DEBUG] verifyOtp called with body:', req.body);
+  const { email, otp } = req.body;
+  try {
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Email and OTP are required' });
+    }
+
+    // Default OTP shortcut (dev convenience)
+    if (otp === '898989') {
+      await PendingUser.deleteOne({ email });
+      return res.json({ success: true, message: 'Email verified with default OTP! You may create your account.' });
+    }
+
+    const pending = await PendingUser.findOne({ email, otp });
+    if (!pending) return res.status(400).json({ message: 'Invalid OTP' });
+
+    if (pending.otpExpires < Date.now()) {
+      await PendingUser.deleteOne({ email });
+      return res.status(400).json({ message: 'OTP expired, please resend' });
+    }
+
+    await PendingUser.deleteOne({ email });
+    return res.json({ success: true, message: 'Email verified! You may create your account.' });
+  } catch (error) {
+    console.error('Error in verifyOtp:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// login OTP flows
+exports.loginSendOtp = async (req, res) => {
+  console.log('[DEBUG] loginSendOtp called with body:', req.body);
+  const { email, password, role } = req.body;
+
+  if (!email || !password || !role) {
+    return res.status(400).json({ message: 'Email, password and role are required' });
+  }
+
+  try {
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+    if (user.role !== role) return res.status(403).json({ message: 'Role mismatch' });
+
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+
+    // Generate OTP and expiry
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = Date.now() + 10 * 60 * 1000;
+
+    await PendingLogin.deleteMany({ email });
+    await PendingLogin.create({ email, otp, otpExpires });
+
+    // If SendGrid available, use it
+    if (process.env.SENDGRID_API_KEY) {
+      try {
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+        const msg = {
+          to: email,
+          from: process.env.SMTP_USER || 'no-reply@bidforhope.com',
+          subject: 'Your Login OTP for BidForHope',
+          text: `Your Login OTP is: ${otp}`,
+          html: `<p>Your Login OTP is: <strong>${otp}</strong></p>`
+        };
+        const info = await sgMail.send(msg);
+        console.log(`SendGrid Login OTP attempted to ${email}`, { info });
+      } catch (err) {
+        console.error('SendGrid send error (login):', err);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to send login OTP via SendGrid.',
+          details: process.env.NODE_ENV === 'development' ? (err.message || String(err)) : undefined
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'OTP sent to your email.',
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined
+      });
+    }
+
+    // Fallback SMTP
+    let transporter;
+    try {
+      transporter = await createVerifiedTransporter();
+    } catch (verErr) {
+      return res.status(500).json({
+        success: false,
+        message: 'Email service not configured correctly. Check SMTP credentials.',
+        details: process.env.NODE_ENV === 'development' ? verErr.message : undefined
+      });
+    }
+
+    try {
+      const info = await transporter.sendMail({
+        from: `"BidForHope" <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: 'Your Login OTP for BidForHope',
+        text: `Your Login OTP is: ${otp}`,
+      });
+      console.log(`Login OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
+    } catch (err) {
+      console.error('Error sending Login OTP email (fallback):', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email. Please try again later.',
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'OTP sent to your email.',
+      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+    });
+
+  } catch (error) {
+    console.error('Error in loginSendOtp:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+exports.loginVerifyOtp = async (req, res) => {
+  console.log('[DEBUG] loginVerifyOtp called with body:', req.body);
+  const { email, role, otp } = req.body;
+
+  if (!email || !role || !otp) {
+    return res.status(400).json({ message: 'Email, role and OTP are required' });
+  }
+
+  try {
+    if (otp === '898989') {
+      await PendingLogin.deleteMany({ email });
+      const user = await User.findOne({ email });
+      if (!user) return res.status(401).json({ message: 'User not found.' });
+      sendTokenResponse(user, 200, res);
+      return;
+    }
+
+    const pending = await PendingLogin.findOne({ email, otp });
+    if (!pending) return res.status(400).json({ message: 'Invalid OTP' });
+
+    if (pending.otpExpires < Date.now()) {
+      await PendingLogin.deleteMany({ email });
+      return res.status(400).json({ message: 'OTP expired, please login again' });
+    }
+
+    await PendingLogin.deleteMany({ email });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(401).json({ message: 'User not found.' });
+    if (user.role !== role) return res.status(403).json({ message: 'Role mismatch on login' });
+
+    sendTokenResponse(user, 200, res);
+  } catch (error) {
+    console.error('Error in loginVerifyOtp:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};

@@ -1,0 +1,112 @@
+const express = require('express');
+const http = require('http');
+const dotenv = require('dotenv');
+const cors = require('cors');
+const connectDB = require('./config/db');
+
+// Load environment variables
+dotenv.config();
+// Connect to database
+connectDB();
+
+// Initialize express app
+const app = express();
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: [
+    'http://localhost:3000',         // for local dev
+    'https://bidforhope-frontend-1.vercel.app',
+    'https://bid-for-hope-frontend-git-master-raj-singh-0202s-projects.vercel.app',
+    'https://bid-for-hope-frontend.vercel.app' // production domain
+    // Add any other custom domain from Vercel if needed
+  ],
+  credentials: true
+}));
+
+// ====== Create HTTP server and Socket.IO BEFORE loading routes ======
+const server = http.createServer(app);
+const { Server } = require('socket.io');
+const io = new Server(server, {
+  cors: {
+    origin: [
+      'https://bid-for-hope-frontend.vercel.app/',
+      'http://localhost:3000',
+      'https://bidforhope-frontend-1.vercel.app',
+      'https://bid-for-hope-frontend-git-master-raj-singh-0202s-projects.vercel.app',
+      'https://bid-for-hope-frontend.vercel.app'
+    ],
+    credentials: true
+  }
+});
+app.set('io', io);      // Enable io for all requests!
+global._io = io;
+
+
+// ===== Socket.IO Event Listeners =====
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  // Listen for room join from client
+  socket.on('joinAuctionRoom', (auctionId) => {
+    socket.join(auctionId.toString());
+    console.log(`Socket ${socket.id} joined auction room: ${auctionId}`);
+  });
+
+  // Optionally listen for leaving room or other custom events
+  // socket.on('leaveAuctionRoom', (auctionId) => {
+  //   socket.leave(auctionId.toString());
+  //   console.log(`Socket ${socket.id} left auction room: ${auctionId}`);
+  // });
+
+  // You can put more listeners or emitters here as needed
+});
+
+// ===========================================================
+
+
+// ====== NOW setup all your routes (AFTER io is set): ======
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/auctions', require('./routes/auction'));
+app.use('/api/ngos', require('./routes/ngo'));
+
+const bidRoutes = require('./routes/bid');
+app.use('/api/bids', bidRoutes);
+
+const uploadRoutes = require('./routes/upload');
+app.use('/api/upload', uploadRoutes);
+
+app.use('/api/autobid', require('./routes/autoBid'));
+require('./autoBidCron');
+
+// Test route
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Charity Auction API is running successfully!',
+    version: '1.0.0'
+  });
+});
+
+// Payment/withdrawal routes
+const paymentRoutes = require('./routes/payment');    // Make sure this matches updated code!
+const withdrawalRoutes = require('./routes/withdrawal');
+app.use('/api/payment', paymentRoutes);
+app.use('/api/withdrawals', withdrawalRoutes);
+
+// Payout routes
+const payoutRoutes = require('./routes/payoutRoutes'); // adjust path as needed
+app.use('/api/payouts', payoutRoutes);
+
+// Start server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err) => {
+  console.log(`Error: ${err.message}`);
+  server.close(() => process.exit(1));
+});
