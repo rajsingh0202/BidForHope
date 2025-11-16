@@ -1,5 +1,7 @@
+// controllers/auth.js
 const User = require('../models/User');
 const PendingUser = require('../models/PendingUser');
+const PendingLogin = require('../models/PendingLogin');
 const nodemailer = require('nodemailer');
 
 // Register new user
@@ -31,6 +33,7 @@ exports.register = async (req, res) => {
     sendTokenResponse(user, 201, res);
     return;
   } catch (error) {
+    console.error('Error in register:', error);
     return res.status(500).json({
       success: false,
       message: error.message
@@ -73,6 +76,7 @@ exports.login = async (req, res) => {
     sendTokenResponse(user, 200, res);
     return;
   } catch (error) {
+    console.error('Error in login:', error);
     return res.status(500).json({
       success: false,
       message: error.message
@@ -88,6 +92,7 @@ exports.getMe = async (req, res) => {
       data: user
     });
   } catch (error) {
+    console.error('Error in getMe:', error);
     return res.status(500).json({
       success: false,
       message: error.message
@@ -110,18 +115,8 @@ const sendTokenResponse = (user, statusCode, res) => {
   return;
 };
 
-// SEND OTP Controller
-exports.requestOtp = async (req, res) => {
-  const { email } = req.body;
-
-  const userExists = await User.findOne({ email });
-  const pendingExists = await PendingUser.findOne({ email });
-
-  if (userExists) {
-    return res.status(400).json({ success: false, type: "registered", message: "Email is already registered." });
-  }
-
-  // SMTP transporter config
+// Helper: create and verify transporter
+const createVerifiedTransporter = async () => {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -130,140 +125,238 @@ exports.requestOtp = async (req, res) => {
     }
   });
 
-  // If pending, regenerate and resend OTP!
-  if (pendingExists) {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  // verify transporter connection/auth before proceeding
+  try {
+    await transporter.verify();
+    console.log('SMTP transporter verified');
+  } catch (verErr) {
+    console.error('SMTP verification failed', verErr);
+    // rethrow to let caller handle response
+    throw verErr;
+  }
+
+  return transporter;
+};
+
+// SEND OTP Controller
+exports.requestOtp = async (req, res) => {
+  console.log('[DEBUG] requestOtp called with body:', req.body);
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email is required' });
+  }
+
+  try {
+    const userExists = await User.findOne({ email });
+    const pendingExists = await PendingUser.findOne({ email });
+
+    if (userExists) {
+      return res.status(400).json({ success: false, type: "registered", message: "Email is already registered." });
+    }
+
+    // create and verify transporter
+    let transporter;
+    try {
+      transporter = await createVerifiedTransporter();
+    } catch (verErr) {
+      // transporter verification failed
+      return res.status(500).json({
+        success: false,
+        message: 'Email service not configured correctly. Check SMTP credentials.',
+        details: process.env.NODE_ENV === 'development' ? verErr.message : undefined
+      });
+    }
+
+    const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateOtp();
     const otpExpires = Date.now() + 10 * 60 * 1000;
-    await PendingUser.updateOne({ email }, { otp, otpExpires });
+
+    if (pendingExists) {
+      await PendingUser.updateOne({ email }, { otp, otpExpires });
+      try {
+        const info = await transporter.sendMail({
+          from: `"BidForHope" <${process.env.SMTP_USER}>`,
+          to: email,
+          subject: 'Your BidForHope OTP Verification',
+          text: `Your OTP for BidForHope registration is: ${otp}`,
+        });
+        console.log(`OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
+      } catch (err) {
+        console.error('Error sending OTP email (resend):', err);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to send OTP email. Please try again later.',
+          details: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+      }
+
+      // In development, return OTP for easy testing
+      if (process.env.NODE_ENV === 'development') {
+        return res.json({ success: true, message: "OTP resent! Please check your email.", otp });
+      }
+      return res.json({ success: true, message: "OTP resent! Please check your email." });
+    }
+
+    // New registration - generate and save OTP
+    await PendingUser.create({ email, otp, otpExpires });
 
     try {
-      await transporter.sendMail({
+      const info = await transporter.sendMail({
         from: `"BidForHope" <${process.env.SMTP_USER}>`,
         to: email,
         subject: 'Your BidForHope OTP Verification',
         text: `Your OTP for BidForHope registration is: ${otp}`,
       });
-      console.log(`OTP email attempted to ${email}`);
+      console.log(`OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
     } catch (err) {
-      console.error('Error sending OTP email:', err);
-      return res.status(500).json({ success: false, message: 'Failed to send OTP email. Please try again later.' });
+      console.error('Error sending OTP email (initial):', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email. Please try again later.',
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+      });
     }
 
-    return res.json({ success: true, message: "OTP resent! Please check your email." });
+    if (process.env.NODE_ENV === 'development') {
+      return res.json({ success: true, message: 'OTP sent to your email', otp });
+    }
+    return res.json({ success: true, message: 'OTP sent to your email' });
+
+  } catch (error) {
+    console.error('Error in requestOtp:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
   }
-
-  // New registration - generate and save OTP
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const otpExpires = Date.now() + 10 * 60 * 1000;
-
-  await PendingUser.create({ email, otp, otpExpires });
-
-  try {
-    await transporter.sendMail({
-      from: `"BidForHope" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Your BidForHope OTP Verification',
-      text: `Your OTP for BidForHope registration is: ${otp}`,
-    });
-    console.log(`OTP email attempted to ${email}`);
-  } catch (err) {
-    console.error('Error sending OTP email:', err);
-    return res.status(500).json({ success: false, message: 'Failed to send OTP email. Please try again later.' });
-  }
-
-  res.json({ success: true, message: 'OTP sent to your email' });
 };
 
 exports.verifyOtp = async (req, res) => {
+  console.log('[DEBUG] verifyOtp called with body:', req.body);
   const { email, otp } = req.body;
   try {
-    // Default OTP
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Email and OTP are required' });
+    }
+
+    // Default OTP shortcut (dev convenience)
     if (otp === '898989') {
       await PendingUser.deleteOne({ email });
       return res.json({ success: true, message: 'Email verified with default OTP! You may create your account.' });
     }
-    // Normal OTP flow
+
     const pending = await PendingUser.findOne({ email, otp });
     if (!pending) return res.status(400).json({ message: 'Invalid OTP' });
+
     if (pending.otpExpires < Date.now()) {
       await PendingUser.deleteOne({ email });
       return res.status(400).json({ message: 'OTP expired, please resend' });
     }
+
     await PendingUser.deleteOne({ email });
-    res.json({ success: true, message: 'Email verified! You may create your account.' });
+    return res.json({ success: true, message: 'Email verified! You may create your account.' });
   } catch (error) {
     console.error('Error in verifyOtp:', error);
     return res.status(500).json({ message: error.message });
   }
 };
 
-const PendingLogin = require('../models/PendingLogin');
-
+// login OTP flows
 exports.loginSendOtp = async (req, res) => {
+  console.log('[DEBUG] loginSendOtp called with body:', req.body);
   const { email, password, role } = req.body;
 
-  const user = await User.findOne({ email }).select('+password');
-  if (!user) return res.status(401).json({ message: 'Invalid credentials' });
-  if (user.role !== role) return res.status(403).json({ message: 'Role mismatch' });
-
-  const isMatch = await user.matchPassword(password);
-  if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
-
-  // Generate OTP and expiry
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const otpExpires = Date.now() + 10 * 60 * 1000;
-
-  await PendingLogin.deleteMany({ email });
-  await PendingLogin.create({ email, otp, otpExpires });
-
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    }
-  });
-
-  try {
-    await transporter.sendMail({
-      from: `"BidForHope" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Your Login OTP for BidForHope',
-      text: `Your Login OTP is: ${otp}`,
-    });
-    console.log(`Login OTP email attempted to ${email}`);
-  } catch (err) {
-    console.error('Error sending OTP email:', err);
-    return res.status(500).json({ success: false, message: 'Failed to send OTP email. Please try again later.' });
+  if (!email || !password || !role) {
+    return res.status(400).json({ message: 'Email, password and role are required' });
   }
 
-  res.json({ success: true, message: 'OTP sent to your email.' });
+  try {
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+    if (user.role !== role) return res.status(403).json({ message: 'Role mismatch' });
+
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+
+    // Generate OTP and expiry
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = Date.now() + 10 * 60 * 1000;
+
+    await PendingLogin.deleteMany({ email });
+    await PendingLogin.create({ email, otp, otpExpires });
+
+    // create and verify transporter
+    let transporter;
+    try {
+      transporter = await createVerifiedTransporter();
+    } catch (verErr) {
+      return res.status(500).json({
+        success: false,
+        message: 'Email service not configured correctly. Check SMTP credentials.',
+        details: process.env.NODE_ENV === 'development' ? verErr.message : undefined
+      });
+    }
+
+    try {
+      const info = await transporter.sendMail({
+        from: `"BidForHope" <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: 'Your Login OTP for BidForHope',
+        text: `Your Login OTP is: ${otp}`,
+      });
+      console.log(`Login OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
+    } catch (err) {
+      console.error('Error sending Login OTP email:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email. Please try again later.',
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+      });
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      return res.json({ success: true, message: 'OTP sent to your email.', otp });
+    }
+    return res.json({ success: true, message: 'OTP sent to your email.' });
+
+  } catch (error) {
+    console.error('Error in loginSendOtp:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
 };
 
 exports.loginVerifyOtp = async (req, res) => {
+  console.log('[DEBUG] loginVerifyOtp called with body:', req.body);
   const { email, role, otp } = req.body;
 
-  if (otp === '898989') {
+  if (!email || !role || !otp) {
+    return res.status(400).json({ message: 'Email, role and OTP are required' });
+  }
+
+  try {
+    if (otp === '898989') {
+      await PendingLogin.deleteMany({ email });
+      const user = await User.findOne({ email });
+      if (!user) return res.status(401).json({ message: 'User not found.' });
+      sendTokenResponse(user, 200, res);
+      return;
+    }
+
+    const pending = await PendingLogin.findOne({ email, otp });
+    if (!pending) return res.status(400).json({ message: 'Invalid OTP' });
+
+    if (pending.otpExpires < Date.now()) {
+      await PendingLogin.deleteMany({ email });
+      return res.status(400).json({ message: 'OTP expired, please login again' });
+    }
+
     await PendingLogin.deleteMany({ email });
+
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'User not found.' });
+    if (user.role !== role) return res.status(403).json({ message: 'Role mismatch on login' });
+
     sendTokenResponse(user, 200, res);
-    return;
+  } catch (error) {
+    console.error('Error in loginVerifyOtp:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
-
-  const pending = await PendingLogin.findOne({ email, otp });
-  if (!pending) return res.status(400).json({ message: 'Invalid OTP' });
-
-  if (pending.otpExpires < Date.now()) {
-    await PendingLogin.deleteMany({ email });
-    return res.status(400).json({ message: 'OTP expired, please login again' });
-  }
-
-  await PendingLogin.deleteMany({ email });
-
-  const user = await User.findOne({ email });
-  if (!user) return res.status(401).json({ message: 'User not found.' });
-  if (user.role !== role) return res.status(403).json({ message: 'Role mismatch on login' });
-
-  sendTokenResponse(user, 200, res);
 };
