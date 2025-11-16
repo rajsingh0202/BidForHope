@@ -3,6 +3,7 @@ const User = require('../models/User');
 const PendingUser = require('../models/PendingUser');
 const PendingLogin = require('../models/PendingLogin');
 const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
 // Register new user
 exports.register = async (req, res) => {
@@ -115,7 +116,7 @@ const sendTokenResponse = (user, statusCode, res) => {
   return;
 };
 
-// Helper: create and verify transporter
+// Helper: create and verify transporter (nodemailer fallback)
 const createVerifiedTransporter = async () => {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -128,9 +129,9 @@ const createVerifiedTransporter = async () => {
   // verify transporter connection/auth before proceeding
   try {
     await transporter.verify();
-    console.log('SMTP transporter verified');
+    console.log('SMTP transporter verified (fallback)');
   } catch (verErr) {
-    console.error('SMTP verification failed', verErr);
+    console.error('SMTP verification failed (fallback)', verErr);
     // rethrow to let caller handle response
     throw verErr;
   }
@@ -138,7 +139,7 @@ const createVerifiedTransporter = async () => {
   return transporter;
 };
 
-// SEND OTP Controller
+// SEND OTP Controller (SendGrid preferred, Nodemailer fallback)
 exports.requestOtp = async (req, res) => {
   console.log('[DEBUG] requestOtp called with body:', req.body);
   const { email } = req.body;
@@ -155,7 +156,48 @@ exports.requestOtp = async (req, res) => {
       return res.status(400).json({ success: false, type: "registered", message: "Email is already registered." });
     }
 
-    // create and verify transporter
+    const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateOtp();
+    const otpExpires = Date.now() + 10 * 60 * 1000;
+
+    // Save or update pending user
+    if (pendingExists) {
+      await PendingUser.updateOne({ email }, { otp, otpExpires });
+    } else {
+      await PendingUser.create({ email, otp, otpExpires });
+    }
+
+    // Prefer SendGrid when configured
+    if (process.env.SENDGRID_API_KEY) {
+      try {
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+        const msg = {
+          to: email,
+          from: process.env.SMTP_USER || 'no-reply@bidforhope.com', // ideally verify this sender in SendGrid
+          subject: 'Your BidForHope OTP Verification',
+          text: `Your OTP for BidForHope registration is: ${otp}`,
+          html: `<p>Your OTP for <strong>BidForHope</strong> registration is: <strong>${otp}</strong></p>`,
+        };
+        const info = await sgMail.send(msg);
+        console.log(`SendGrid OTP email attempted to ${email}`, { info });
+      } catch (err) {
+        console.error('SendGrid send error:', err);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to send OTP email via SendGrid.',
+          details: process.env.NODE_ENV === 'development' ? (err.message || String(err)) : undefined
+        });
+      }
+
+      // Return response (include otp in development for testing)
+      return res.json({
+        success: true,
+        message: pendingExists ? 'OTP resent! Please check your email.' : 'OTP sent to your email',
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined
+      });
+    }
+
+    // Fallback: Nodemailer (may fail on some hosts)
     let transporter;
     try {
       transporter = await createVerifiedTransporter();
@@ -163,43 +205,10 @@ exports.requestOtp = async (req, res) => {
       // transporter verification failed
       return res.status(500).json({
         success: false,
-        message: 'Email service not configured correctly. Check SMTP credentials.',
+        message: 'Email service not configured correctly. Check SMTP credentials (fallback).',
         details: process.env.NODE_ENV === 'development' ? verErr.message : undefined
       });
     }
-
-    const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
-    const otp = generateOtp();
-    const otpExpires = Date.now() + 10 * 60 * 1000;
-
-    if (pendingExists) {
-      await PendingUser.updateOne({ email }, { otp, otpExpires });
-      try {
-        const info = await transporter.sendMail({
-          from: `"BidForHope" <${process.env.SMTP_USER}>`,
-          to: email,
-          subject: 'Your BidForHope OTP Verification',
-          text: `Your OTP for BidForHope registration is: ${otp}`,
-        });
-        console.log(`OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
-      } catch (err) {
-        console.error('Error sending OTP email (resend):', err);
-        return res.status(500).json({
-          success: false,
-          message: 'Failed to send OTP email. Please try again later.',
-          details: process.env.NODE_ENV === 'development' ? err.message : undefined
-        });
-      }
-
-      // In development, return OTP for easy testing
-      if (process.env.NODE_ENV === 'development') {
-        return res.json({ success: true, message: "OTP resent! Please check your email.", otp });
-      }
-      return res.json({ success: true, message: "OTP resent! Please check your email." });
-    }
-
-    // New registration - generate and save OTP
-    await PendingUser.create({ email, otp, otpExpires });
 
     try {
       const info = await transporter.sendMail({
@@ -208,24 +217,28 @@ exports.requestOtp = async (req, res) => {
         subject: 'Your BidForHope OTP Verification',
         text: `Your OTP for BidForHope registration is: ${otp}`,
       });
-      console.log(`OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
+      console.log(`Nodemailer OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
     } catch (err) {
-      console.error('Error sending OTP email (initial):', err);
+      console.error('Error sending OTP email (fallback nodemailer):', err);
       return res.status(500).json({
         success: false,
-        message: 'Failed to send OTP email. Please try again later.',
-        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+        message: 'Failed to send OTP email (fallback nodemailer).',
+        details: process.env.NODE_ENV === 'development' ? (err.message || String(err)) : undefined
       });
     }
 
-    if (process.env.NODE_ENV === 'development') {
-      return res.json({ success: true, message: 'OTP sent to your email', otp });
-    }
-    return res.json({ success: true, message: 'OTP sent to your email' });
-
+    return res.json({
+      success: true,
+      message: pendingExists ? 'OTP resent! Please check your email.' : 'OTP sent to your email',
+      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+    });
   } catch (error) {
-    console.error('Error in requestOtp:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    console.error('Error in requestOtp (sendgrid path):', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? (error.message || String(error)) : undefined
+    });
   }
 };
 
@@ -283,7 +296,36 @@ exports.loginSendOtp = async (req, res) => {
     await PendingLogin.deleteMany({ email });
     await PendingLogin.create({ email, otp, otpExpires });
 
-    // create and verify transporter
+    // If SendGrid available, use it
+    if (process.env.SENDGRID_API_KEY) {
+      try {
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+        const msg = {
+          to: email,
+          from: process.env.SMTP_USER || 'no-reply@bidforhope.com',
+          subject: 'Your Login OTP for BidForHope',
+          text: `Your Login OTP is: ${otp}`,
+          html: `<p>Your Login OTP is: <strong>${otp}</strong></p>`
+        };
+        const info = await sgMail.send(msg);
+        console.log(`SendGrid Login OTP attempted to ${email}`, { info });
+      } catch (err) {
+        console.error('SendGrid send error (login):', err);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to send login OTP via SendGrid.',
+          details: process.env.NODE_ENV === 'development' ? (err.message || String(err)) : undefined
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'OTP sent to your email.',
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined
+      });
+    }
+
+    // Fallback SMTP
     let transporter;
     try {
       transporter = await createVerifiedTransporter();
@@ -304,7 +346,7 @@ exports.loginSendOtp = async (req, res) => {
       });
       console.log(`Login OTP email attempted to ${email}`, { messageId: info.messageId, response: info.response });
     } catch (err) {
-      console.error('Error sending Login OTP email:', err);
+      console.error('Error sending Login OTP email (fallback):', err);
       return res.status(500).json({
         success: false,
         message: 'Failed to send OTP email. Please try again later.',
@@ -312,10 +354,11 @@ exports.loginSendOtp = async (req, res) => {
       });
     }
 
-    if (process.env.NODE_ENV === 'development') {
-      return res.json({ success: true, message: 'OTP sent to your email.', otp });
-    }
-    return res.json({ success: true, message: 'OTP sent to your email.' });
+    return res.json({
+      success: true,
+      message: 'OTP sent to your email.',
+      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+    });
 
   } catch (error) {
     console.error('Error in loginSendOtp:', error);
